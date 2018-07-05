@@ -1,2 +1,2 @@
 #!/usr/bin/env
-watch -n 30 sudo python2 /home/pi/GPIO_Script.py
+watch -n 30 sudo python2 /home/pi/Auto_Script.py
