@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-from IOTBit_Library_V1 import *
+from IoT_Bit_Library import *
 
 
 APN = 'everywhere'
