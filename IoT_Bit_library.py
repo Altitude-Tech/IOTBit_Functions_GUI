@@ -12,13 +12,13 @@ import subprocess
 import serial.tools.list_ports 
 import RPi.GPIO as GPIO
 from datetime import datetime
+
 '''
 Gets the current time in milliseconds. Required for timeout implementation
 '''
 def Getmills():
     mills = int(round(time.time()*1000))
     return mills
-
 
 class Modem:
 
@@ -64,7 +64,9 @@ class Modem:
         '''
         #UARTPort = '/dev/serial0' 
         #self.PassthroughPort = serial.Serial(UARTPort, baudrate=115200, bytesize=8, parity='N', stopbits=1, timeout=1, rtscts=True, dsrdtr=True)
-            
+    
+    ########################################### BASE FUNCTIONS ##########################################################################
+    
     '''
     Function to Send commands via the serial interface. 
     Waits for a response and returns the respons if there is one.
@@ -94,7 +96,6 @@ class Modem:
 
         return self.response
 
-    
     '''
     Function to read the a port to see if there data is waiting to be read.
     '''
@@ -163,6 +164,258 @@ class Modem:
         else:
             print ('Modem not ready')
             
+    ########################################### STATUS FUNCTIONS ##########################################################################
+    
+    '''
+    Test if the modem is responding
+    '''
+    def Test(self):
+        self.sendATcmd('AT',100)
+
+    '''
+    Check if the SIM is being detected
+    '''
+    def CheckSIM(self):
+        msg = self.sendATcmd('AT+CPIN?',100)
+        if 'OK' in msg:
+            print ('SIM inserted')
+        else:
+            print ('SIM not inserted')
+            
+    '''
+    Get GSM network status 
+    '''
+    def StatusGSM(self):
+        self.sendATcmd('AT+MONI?',1000)
+
+    '''
+    GEt LTE network status
+    '''
+    def StatusLTE(self):
+        self.sendATcmd('AT+CMGSI=4',1000) 
+   
+    '''
+    Function to check signal quality
+    '''
+    def SignalCheck(self):
+        '''See Signal Quality'''
+        self.sendATcmd('AT+CSQ',1000)
+        signal = self.response
+        
+        if (',' in self.response[8:10]):
+            signal = signal.replace(',','')
+            signal = int(signal[8:9])
+        else:
+            signal = int(self.response[8:10])
+        
+        if (signal < 10):
+            signal = "Poor Signal"
+        elif(signal > 10 and signal < 14):
+            signal = "OK Signal"
+        elif(signal > 14 and signal < 20):
+            signal = "Good Signal"
+        elif(signal >= 20 and signal < 99):
+            signal = "Exceptional Signal"
+        elif(signal >= 99):
+            signal = "No Connection"
+        return signal       
+    
+    ########################################### BOARD FUNCTIONS ##########################################################################
+    '''
+    Hard reset the modem, usable only with firmware verison 1.5
+    '''
+    def ResetModem(self):
+    # Wait for modem to be ready
+        ready = ""
+        ready = self.PassthroughPort.readline()
+        print (ready)
+        if 'Modem Ready' in ready:
+            self.PassthroughPort.write('R')
+            time.sleep(15)
+            bytestoread = self.PassthroughPort.inWaiting()
+            # While timeout not reached keep checking buffer    
+            if (bytestoread == 0):
+                curtime = Getmills()
+                while (bytestoread == 0) & ((Getmills()-curtime)<1000):
+                    bytestoread = self.PassthroughPort.inWaiting()
+                    time.sleep(0.15)
+            # Store the response 
+                self.response = self.PassthroughPort.read(bytestoread)          
+            else:      
+                self.response = self.PassthroughPort.readline()               
+                
+    '''
+    Reset the IOTBit
+    '''
+    def ResetAll(self):
+        # Wait for modem to be ready
+        ready = ""
+        ready = self.PassthroughPort.readline()
+        if 'Modem Ready' in ready:
+            self.PassthroughPort.write('S')
+
+    '''
+    Check the firmware version if you get no response this means
+    the firmware version is older than 1.5
+    '''
+    def VersionCheck(self):
+        # Wait for modem to be ready
+        ready = ""
+        ready = self.PassthroughPort.readline()
+        if 'Modem Ready' in ready:
+            self.PassthroughPort.write('V')
+            self.response = self.PassthroughPort.readline()
+
+    
+    ########################################### CALL FUNCTIONS ##########################################################################
+    
+    '''
+    Function to make a call
+    '''
+    def MakeCall(self, number):
+        cmd = 'ATD'
+        cmd = cmd + number + ';'
+        self.sendATcmd(cmd, 1)
+        print ('Calling...')
+        
+    '''
+    Function to hang up a call
+    '''
+    def Hangup(self):
+        print (' Hanging up...')
+        self.sendATcmd('ATH',1)
+
+    ########################################### SMS FUNCTIONS ##########################################################################
+    
+    '''
+    Function to configure SMS 
+    '''
+    def SMSConfig(self, mem1,mem2,mem3):
+        print ('Configuring Modem for SMS...')
+        q = '"'
+        c = ',' 
+        self.sendATcmd('AT+CMGF=1',10)
+        time.sleep(0.01)
+        
+        cmd = 'AT+CPMS='
+        cmd = cmd + q + mem1 + q + c + q + mem2 + q + c + q + mem3 + q
+        self.sendATcmd(cmd,10)
+        time.sleep(0.01)
+        self.sendATcmd('AT+CNMI=2,1',1)
+        time.sleep(0.01)
+        if 'OK' in self.response:
+            print('Setup Complete')
+        
+    '''
+    Function to Send an sms
+    '''
+    def SendSMS(self, number, message):
+        print ('Sending SMS ...')
+        q = '"'
+        cmd = 'AT+CMGSO='
+        cmd = cmd + q + number + q + ',' + q + message + q
+        msg = self.sendATcmd(cmd,16000)
+        if 'OK' in msg:
+            print (' Sending successful')
+
+        else:
+            print (' Sending Unsuccessful')
+
+    '''
+    Function to read the sms in storage, if index is 0 print all msgs
+    '''
+    def ReadSMS(self, index):
+        if int(index) == 0:
+            self.content = self.sendATcmd('AT+CMGL="ALL"',3000)
+        elif index > 0:
+            cmd = 'AT+CMGR=' 
+            index = str(index - 1)
+            cmd = cmd + index
+            self.content = self.sendATcmd(cmd,3000)
+
+        return self.content
+    
+    '''
+    Function to delete an sms in storeage, index refers to the position of the message
+    '''
+    def DeleteSMS(self, index):
+        cmd = 'AT+CMGD='
+        index = str(index)
+        cmd = cmd + index
+        self.content = self.sendATcmd(cmd,3000)
+        return self.content   
+    
+    '''
+    Function to read the command sent over sms
+    '''         
+    def ReadSMSCmd(self):
+        self.ReadSMS(0)
+        time.sleep(2)
+            
+        REC = '"REC READ"'
+        CMGL = '+CMGL: '
+        index = '0'
+        counter = 0
+
+        for i, _ in enumerate(self.response):
+            if self.response[i:i + len(CMGL)] == CMGL:
+                c_index = self.response[i + len(CMGL)]
+                if c_index > index:
+                    index = c_index
+                     
+        cmd = 'AT+CMGR=' 
+        index = str(index)
+        cmd = cmd + index
+        self.sendATcmd(cmd,3000)
+
+    '''
+    Function to set GPIO pins high or low depending on the SMS
+    '''
+    def SetPins(self):
+        #Read cmd sent over SMS
+        self.ReadSMSCmd()
+
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        signalB = self.response
+
+        #Set desirded pins as high or low output
+        if 'PIN26H' in self.response:
+           GPIO.setup(26,GPIO.OUT)
+           GPIO.output(26,GPIO.HIGH)
+           signalB = "Pin 26 set to High"
+           
+        elif 'PIN26L' in self.response:       
+           GPIO.setup(26,GPIO.OUT)
+           GPIO.output(26,GPIO.LOW)
+           signalB = "Pin 26 set to Low"
+           
+        elif 'PIN19H' in self.response:        
+           GPIO.setup(19,GPIO.OUT)
+           GPIO.output(26,GPIO.HIGH)
+           signalB = "Pin 19 set to High"
+           
+        elif 'PIN19L' in self.response:        
+           GPIO.setup(19,GPIO.OUT)
+           GPIO.output(19,GPIO.LOW)
+           signalB = "Pin 19 set to Low"
+           
+        elif 'PIN13H' in self.response:       
+           GPIO.setup(13,GPIO.OUT)
+           GPIO.output(13,GPIO.HIGH)
+           signalB = "Pin 13 set to High"
+           
+        elif 'PIN13L' in self.response:        
+           GPIO.setup(13,GPIO.OUT)
+           GPIO.output(13,GPIO.LOW)
+           signalB = "Pin 13 set to Low"
+           
+        else:
+            signalB = "NO Signals Sent"
+
+        return signalB
+
+    ########################################### GPS FUNCTIONS ##########################################################################
     
     '''
     Function to start the GPS in Standalone mode 
@@ -241,262 +494,9 @@ class Modem:
         self.GPS = self.sendATcmd('AT+CGPSINFO',1)
         return self.GPS
 
-    '''
-    Function to configure SMS 
-    '''
-    def SMSConfig(self, mem1,mem2,mem3):
-        print ('Configuring Modem for SMS...')
-        q = '"'
-        c = ',' 
-        self.sendATcmd('AT+CMGF=1',10)
-        time.sleep(0.01)
-        
-        cmd = 'AT+CPMS='
-        cmd = cmd + q + mem1 + q + c + q + mem2 + q + c + q + mem3 + q
-        self.sendATcmd(cmd,10)
-        time.sleep(0.01)
-        self.sendATcmd('AT+CNMI=2,1',1)
-        time.sleep(0.01)
-        if 'OK' in self.response:
-            print('Setup Complete')
-        
-    '''
-    Function to Send an sms
-    '''
-    def SendSMS(self, number, message):
-        print ('Sending SMS ...')
-        q = '"'
-        cmd = 'AT+CMGSO='
-        cmd = cmd + q + number + q + ',' + q + message + q
-        msg = self.sendATcmd(cmd,16000)
-        if 'OK' in msg:
-            print (' Sending successful')
+   
 
-        else:
-            print (' Sending Unsuccessful')
-
-    '''
-    Function to read the sms in storage, if index is 0 print all msgs
-    '''
-    def ReadSMS(self, index):
-        if int(index) == 0:
-            self.content = self.sendATcmd('AT+CMGL="ALL"',3000)
-        elif index > 0:
-            cmd = 'AT+CMGR=' 
-            index = str(index - 1)
-            cmd = cmd + index
-            self.content = self.sendATcmd(cmd,3000)
-
-        return self.content
     
-    '''
-    Function to delete an sms in storeage, index refers to the position of the message
-    '''
-    def DeleteSMS(self, index):
-        cmd = 'AT+CMGD='
-        index = str(index)
-        cmd = cmd + index
-        self.content = self.sendATcmd(cmd,3000)
-        return self.content    
-
-    '''
-    Function to make a call
-    '''
-    def MakeCall(self, number):
-        cmd = 'ATD'
-        cmd = cmd + number + ';'
-        self.sendATcmd(cmd, 1)
-        print ('Calling...')
-        
-    '''
-    Function to hang up a call
-    '''
-    def Hangup(self):
-        print (' Hanging up...')
-        self.sendATcmd('ATH',1)
-
-    '''
-    Test if the modem is responding
-    '''
-    def Test(self):
-        self.sendATcmd('AT',100)
-
-    '''
-    Check if the SIM is being detected
-    '''
-    def CheckSIM(self):
-        msg = self.sendATcmd('AT+CPIN?',100)
-        if 'OK' in msg:
-            print ('SIM inserted')
-        else:
-            print ('SIM not inserted')
-            
-    '''
-    Get GSM network status 
-    '''
-    def StatusGSM(self):
-        self.sendATcmd('AT+MONI?',1000)
-
-    '''
-    GEt LTE network status
-    '''
-    def StatusLTE(self):
-        self.sendATcmd('AT+CMGSI=4',1000)
-        
-    '''
-    Soft Reset the modem
-    '''    
-    def ResetSIM(self):
-        self.sendATcmd('AT+CRESET', 1000)
-        
-    '''
-    Turn off the modem
-    '''
-    def PoweroffSIM(self):
-        self.sendATcmd('AT+CPOF', 1000)        
-    '''
-    Hard reset the modem, usable only with firmware verison 1.5
-    '''
-    def ResetModem(self):
-    # Wait for modem to be ready
-        ready = ""
-        ready = self.PassthroughPort.readline()
-        print (ready)
-        if 'Modem Ready' in ready:
-            self.PassthroughPort.write('R')
-            time.sleep(15)
-            bytestoread = self.PassthroughPort.inWaiting()
-            # While timeout not reached keep checking buffer    
-            if (bytestoread == 0):
-                curtime = Getmills()
-                while (bytestoread == 0) & ((Getmills()-curtime)<1000):
-                    bytestoread = self.PassthroughPort.inWaiting()
-                    time.sleep(0.15)
-            # Store the response 
-                self.response = self.PassthroughPort.read(bytestoread)
-                print (bytestoread)
-                        
-            else:      
-                self.response = self.PassthroughPort.readline()     
-            
-                
-    '''
-    Reset the IOTBit
-    '''
-    def ResetAll(self):
-        # Wait for modem to be ready
-        ready = ""
-        ready = self.PassthroughPort.readline()
-        if 'Modem Ready' in ready:
-            self.PassthroughPort.write('S')
-
-    '''
-    Check the firmware version if you get no response this means
-    the firmware version is older than 1.5
-    '''
-    def VersionCheck(self):
-        # Wait for modem to be ready
-        ready = ""
-        ready = self.PassthroughPort.readline()
-        if 'Modem Ready' in ready:
-            self.PassthroughPort.write('V')
-            self.response = self.PassthroughPort.readline()
-
-    '''
-    Function to check signal quality
-    '''
-    def SignalCheck(self):
-        '''See Signal Quality'''
-        self.sendATcmd('AT+CSQ',1000)
-        signal = self.response
-        
-        if (',' in self.response[8:10]):
-            signal = signal.replace(',','')
-            signal = int(signal[8:9])
-        else:
-            signal = int(self.response[8:10])
-        
-        if (signal < 10):
-            signal = "Poor Signal"
-        elif(signal > 10 and signal < 14):
-            signal = "OK Signal"
-        elif(signal > 14 and signal < 20):
-            signal = "Good Signal"
-        elif(signal >= 20 and signal < 99):
-            signal = "Exceptional Signal"
-        elif(signal >= 99):
-            signal = "No Connection"
-        return signal
-
-    '''
-    Function to set GPIO pins high or low depending on the SMS
-    '''
-    def SetPins(self):
-        #Read cmd sent over SMS
-        self.ReadSMSCmd()
-
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        signalB = self.response
-
-        #Set desirded pins as high or low output
-        if 'PIN26H' in self.response:
-           GPIO.setup(26,GPIO.OUT)
-           GPIO.output(26,GPIO.HIGH)
-           signalB = "Pin 26 set to High"
-           
-        elif 'PIN26L' in self.response:       
-           GPIO.setup(26,GPIO.OUT)
-           GPIO.output(26,GPIO.LOW)
-           signalB = "Pin 26 set to Low"
-           
-        elif 'PIN19H' in self.response:        
-           GPIO.setup(19,GPIO.OUT)
-           GPIO.output(26,GPIO.HIGH)
-           signalB = "Pin 19 set to High"
-           
-        elif 'PIN19L' in self.response:        
-           GPIO.setup(19,GPIO.OUT)
-           GPIO.output(19,GPIO.LOW)
-           signalB = "Pin 19 set to Low"
-           
-        elif 'PIN13H' in self.response:       
-           GPIO.setup(13,GPIO.OUT)
-           GPIO.output(13,GPIO.HIGH)
-           signalB = "Pin 13 set to High"
-           
-        elif 'PIN13L' in self.response:        
-           GPIO.setup(13,GPIO.OUT)
-           GPIO.output(13,GPIO.LOW)
-           signalB = "Pin 13 set to Low"
-           
-        else:
-            signalB = "NO Signals Sent"
-
-        return signalB
-
-    '''
-    Function to read the command sent over sms
-    '''         
-    def ReadSMSCmd(self):
-        self.ReadSMS(0)
-        time.sleep(2)
-            
-        REC = '"REC READ"'
-        CMGL = '+CMGL: '
-        index = '0'
-        counter = 0
-
-        for i, _ in enumerate(self.response):
-            if self.response[i:i + len(CMGL)] == CMGL:
-                c_index = self.response[i + len(CMGL)]
-                if c_index > index:
-                    index = c_index
-                     
-        cmd = 'AT+CMGR=' 
-        index = str(index)
-        cmd = cmd + index
-        self.sendATcmd(cmd,3000)
         
 
     
