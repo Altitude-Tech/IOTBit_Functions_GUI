@@ -3,5 +3,16 @@ IoT Bit Functions GUI
 
 Developed in python 2.7 using PyQt5.
 
-Graphical User Interface to use the IoT Bit functios, such as:
-Send, recive, display and delete SMS, Make calls, Check IoT Bit Signal Strength, Use the Raspberry Pi GPIO pins with SMS commands.
+The functions the GUI has in V1 are:
+
+"Send SMS",
+"Display SMS",
+"Delete SMS",
+"Make Call",
+"Hang up",
+"Set GPIO to HIGH/LOW"
+"Signal Quality"
+
+These functions simplify communicating with the IoT Bit modem and by using them in an automated script we'll be able to control hardware attached to the Raspberry Pi's GPIO pins by simply sending an SMS to the IoT Bit. This can be useful in many projects, where you want to turn on or off the devices from a remote location, it can be done with nearly any device if properly set up.
+
+To follow the tutorial please visit the link: https://www.instructables.com/preview/EDTFV0UJGWJ8E00/
