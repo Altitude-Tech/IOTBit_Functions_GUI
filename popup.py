@@ -63,7 +63,7 @@ class Ui_SMS_to_Delete_Popup(object):
             
 
 
-APN = 'everywhere'
+APN = ''
 _4G = Modem(APN)
 
 
