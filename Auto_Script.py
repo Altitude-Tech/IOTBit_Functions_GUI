@@ -1,9 +1,9 @@
-#!/usr/bin/python3
+#!/usr/bin/python
 
 from IoT_Bit_library import *
 
 
-APN = 'everywhere'
+APN = ''
 _4G = Modem(APN)
 #Configure modem for SMS
 _4G.SMSConfig('SM','SM','SM')
